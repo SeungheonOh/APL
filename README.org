@@ -1,0 +1,43 @@
+#+TITLE: APL
+
+* Why?
+** Python
+#+begin_src python
+  def __str__(self):
+   if type(self.arr[0]) == APArray:
+     def rec(arr):
+       if len(arr.shape) == 1:
+         return chart(fmap(str, arr.arr), arr.shape[0], title=",".join(fmap(str, arr.shape)))
+       if len(arr.shape) == 2:
+         return chart(fmap(str, arr.arr), arr.shape[1], title=",".join(fmap(str, arr.shape)))
+       return chart(["\n".join(fmap(lambda a: rec(arr.at(a)), range(1, arr.shape[0]+1)))], 1, title=",".join(fmap(str, arr.shape)))
+     return rec(self)
+   else:
+     longest = max(fmap(lambda a: numstr(a), self.arr), key=lambda d: len(d))
+     fmt = lambda a: '{0: >{width}}'.format(numstr(a), width=len(longest))
+     mkStr = lambda arr: " ".join(fmap(fmt, arr.arr)) if len(arr.shape) == 1 else box("\n".join(fmap(lambda a: mkStr(arr.at(a)), range(1, arr.shape[0]+1))), title=",".join(fmap(str, arr.shape)))
+     return mkStr(self).rstrip()
+#+end_src
+
+** Haskell
+#+begin_src haskell
+  instance Show a => Show (Array a) where
+    show arr
+      | length ns == 1 = unwords $ V.toList $ fmap (fmtStr . show) vec
+      | otherwise = box title $ intercalate "\n" $ show . at arr . (:[]) <$> [1..head ns]
+        where
+          ns = shape arr
+          vec = value arr
+          longest = maximum $ length . show <$> V.toList vec
+          fmtStr s = s ++ ([1..longest - length s] >> " ")
+          title = intercalate "," $ show <$> ns
+
+  instance Show a => Show (Array (Array a)) where
+    show arr
+      | length ns <= 2 = chartWithTitle title (head ns) $ show <$> V.toList vec
+      | otherwise = box title $ intercalate "\n" $ show . at arr . (:[]) <$> [1..head ns]
+      where
+          ns = shape arr
+          vec = value arr
+          title = intercalate "," $ show <$> ns
+#+end_src
