@@ -78,12 +78,6 @@ fill (Array vec ns)
   where
     targ = product ns
 
-reshape :: [Int] -> [a] -> Array a
-reshape a d = fill $ Array (V.fromList d) a
-
-iota :: Int -> [Int]
-iota a = [1..a]
-
 lastN :: Int -> [a] -> [a]
 lastN n xs = drop (length xs - n) xs
 
@@ -139,20 +133,20 @@ split a arr
       mk i = Array (V.fromList $ (\x -> vec V.! convertDemention ns (take axis i ++ [x] ++ drop axis i)) <$> [1..ns!!axis]) [ns!!axis]
 
 main :: IO ()
-main = do
+main = undefined
   -- print $ reshape [2, 4] [1..8]
-  print $ reshape [2, 4] (iota 5)
-  print $ reshape [2, 4] [reshape [2, 4] [1..8]]
-  -- print $ singleton $ at (reshape [2, 4] [1..8]) [2, 2]
-  -- print $ reshape [2, 2] [reshape [2, 2] [1, 2, 4, 5]]
-  --split (reshape [3,3,3] (iota 9)) 1
-  print $ reshape [3,3,3] (iota 9)
-  print $ split 1 (reshape [3,4,5] (iota 9))
-  print $ split 1 (reshape [3] (iota 9))
-  --print $ split 2 $ reshape [2, 4] [reshape [2, 4] (iota 8)]
-  print $ reshape [2, 4] [reshape [2, 4] (iota 8)]
-  print $ reshape [2, 3] [reshape [2, 4] [reshape [2, 4] (iota 88888)]]
-  print $ reshape [2, 4] [reshape [2, 4] (iota 88888)]
+  -- print $ reshape [2, 4] (iota 5)
+  -- print $ reshape [2, 4] [reshape [2, 4] [1..8]]
+  -- -- print $ singleton $ at (reshape [2, 4] [1..8]) [2, 2]
+  -- -- print $ reshape [2, 2] [reshape [2, 2] [1, 2, 4, 5]]
+  -- --split (reshape [3,3,3] (iota 9)) 1
+  -- print $ reshape [3,3,3] (iota 9)
+  -- print $ split 1 (reshape [3,4,5] (iota 9))
+  -- print $ split 1 (reshape [3] (iota 9))
+  -- --print $ split 2 $ reshape [2, 4] [reshape [2, 4] (iota 8)]
+  -- print $ reshape [2, 4] [reshape [2, 4] (iota 8)]
+  -- print $ reshape [2, 3] [reshape [2, 4] [reshape [2, 4] (iota 88888)]]
+  -- print $ reshape [2, 4] [reshape [2, 4] (iota 88888)]
   --print $ split (reshape [3,3] [1..9]) 2
 
 -- data Tree a
@@ -173,14 +167,24 @@ instance Functor NestedArray where
   fmap f (Node a) = Node $ f a
   fmap f (Nest arr) = Nest $ fmap (fmap f) arr
 
+reshape :: [Int] -> NestedArray a -> NestedArray a
+reshape r (Node a) = reshape r (Nest $ Array (V.fromList [Node a]) [1]) --Nest $ (fill $ Array (V.fromList [a]) r)
+reshape r (Nest a) = Nest $ fill $ Array (value a) r
+
+iota :: Int -> NestedArray Int
+iota a = fromList [1..a]
+
+enclose :: NestedArray a -> NestedArray a
+enclose a = Nest $ Array (V.fromList [a]) [1]
+
 example :: NestedArray Int
-example = Nest (reshape [3, 3] [Node 5, Node 3, Node 5, Node 2])
+example = reshape [3, 3] (iota 5)
 
 example2 :: NestedArray Int
-example2 = Nest (reshape [2, 2, 2] [Nest(reshape [2, 2] [Node 5])])
+example2 = reshape [2, 2, 2] (enclose $ reshape [2, 2] (iota 5))
 
 example3 :: NestedArray Int
-example3 = Nest (reshape [2] [Nest(reshape [3, 3, 3] [Nest(reshape [3, 3] [Node 5])])])
+example3 = reshape [2] $ Nest (Array (V.fromList [example, example2]) [2])
 
 fromList :: [a] -> NestedArray a
 fromList l = Nest $ Array (V.fromList $ Node <$> l) [length l]
@@ -188,7 +192,7 @@ fromList l = Nest $ Array (V.fromList $ Node <$> l) [length l]
 toList :: NestedArray a -> [a]
 toList (Nest a) = concat $ toList <$> value a
 toList (Node a) = [a]
-  
+
 depth :: NestedArray a -> Int
 depth = acc 0
   where
@@ -208,7 +212,7 @@ instance Show a => Show (NestedArray a) where
           fmtStr s = s ++ ([1..longest - length s] >> " ")
           title = intercalate "," $ show <$> ns
       show' d (Nest a)
-        | length ns <= 2 = chartWithTitle title (head ns) (show' (d-1) <$> V.toList (value a)) 
+        | length ns <= 2 = chartWithTitle title (head ns) (show <$> V.toList (value a))
         | otherwise = box title $ intercalate "\n" $ show . at (Nest a) . (:[]) <$> [1..head ns]
         where
           ns = shape a
@@ -217,17 +221,10 @@ instance Show a => Show (NestedArray a) where
 
 at :: NestedArray a -> [Int] -> NestedArray a
 at (Node a) ns = Node a
-at (Nest a) ns = Nest $ Array (V.slice (convertDemention sh ns) (product newShape) vec) newShape
+at (Nest (Array vec sh)) ns
+  | any (<=0) ns          = throw IndexError
+  | length ns > length sh = throw IndexError
+  | otherwise = Nest $ Array (V.slice (convertDemention sh ns) (product newShape) vec) newShape
   where
-    vec = value a
-    sh = shape a
-    newShape = if null (drop (length ns) sh) then [1] else drop (length ns) sh
-
-cat :: Array a -> [Int] -> Array a
-cat (Array vec ns) n
-  | any (<= 0) n = throw IndexError
-  | otherwise = Array (V.slice ind (product shape) vec) shape
-  where
-    ind = convertDemention ns n
-    sh = drop (length n) ns
-    shape = if null sh then [1] else sh
+    s = drop (length ns) sh
+    newShape = if null s then [1] else s
