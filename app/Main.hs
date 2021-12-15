@@ -6,10 +6,45 @@ module Main where
 import qualified MyLib (someFunc)
 import qualified Data.Vector as V
 import Control.Exception (Exception, throwIO)
-import GHC.Exception (throw)
+import GHC.Exception (throw, fromCallSiteList)
 import Data.List
 import Control.Applicative
 import Control.Monad.Free
+
+{-
+A Breif Note about recursive strucutres
+- Simple rose tree structure
+-- data Tree a
+--   = Leaf a
+--   | Branch [Tree a]
+
+- "Fix" can be used to construct a recursive strucure
+-- data Fix f = Fix (f (Fix f))
+-- data TreeF a r = LeafF a | BranchF [r]
+-- test :: Fix (TreeF Int)
+-- test = undefined
+
+Because simpling putting its own type hinders one from functionally
+interfacing with the nested data, it has to be done by recursive strucutres.
+
+For example in non recursive structures,
+-- Array (Array (Array ...))
+the nested level can go on and there is no way to handle them all
+-- f (Array vec ns) = ... 
+Here we have no control of nested levels.
+As we are not able to deconstruct the vector. :(
+
+However in recursive structures, 
+-- data NestedArray a
+--   = Node a
+--   | Nest (Array (NestedArray a))
+--   deriving (Show)
+the structure does the recursion.
+-- f (Node a) = ...
+-- f (Nest a) = ...
+Here we have full control of nested levels. :)
+-}
+
 
 
 chartWithTitle :: String -> Int -> [String] -> String
@@ -51,131 +86,43 @@ instance Exception APLException
 data Array a = Array
   { value :: V.Vector a
   , shape :: [Int]
-  } deriving (Eq)
+  } deriving (Eq, Show)
 
 instance Functor Array where
-  fmap f arr = Array (fmap f (value arr)) (shape arr)
-
-instance Show a => Show (Array a) where
-  show _ = "nope"
-  -- show arr
-  --   | length ns == 1 = unwords $ V.toList $ fmap (fmtStr . show) vec
-  --   | otherwise = box title $ intercalate "\n" $ show . at arr . (:[]) <$> [1..head ns]
-  --     where
-  --       ns = shape arr
-  --       vec = value arr
-  --       longest = maximum $ length . show <$> V.toList vec
-  --       fmtStr s = s ++ ([1..longest - length s] >> " ")
-  --       title = intercalate "," $ show <$> ns
-
-empty :: Array a
-empty = Array V.empty []
-
-fill :: Array a -> Array a
-fill (Array vec ns)
-  | length vec == targ = Array vec ns
-  | otherwise = Array (V.take targ $ V.fromList [1..targ] >> vec) ns -- Yes this is terrible
-  where
-    targ = product ns
-
-lastN :: Int -> [a] -> [a]
-lastN n xs = drop (length xs - n) xs
-
-convertDemention :: [Int] -> [Int] -> Int
-convertDemention sha n = sum $ zipWith (*) mult $ subtract 1 <$> n
-  where
-    mult = fmap (product . ($ sha)) (lastN <$> reverse [1..(length sha -1)]) <> [1]
-
--- at :: Array a -> [Int] -> Array a
--- at (Array vec ns) n
---   | any (<= 0) n = throw IndexError
---   | otherwise = Array (V.slice ind (product shape) vec) shape
---   where
---     ind = convertDemention ns n
---     sh = drop (length n) ns
---     shape = if null sh then [1] else sh
-
-atEither :: Array a -> [Int] -> Either (Array a) a
-atEither (Array vec ns) n
-  | any (<= 0) n = throw IndexError
-  | shape == [1] = Right $ vec V.! ind
-  | otherwise = Left $ Array (V.slice ind (product shape) vec) shape
-  where
-    ind = convertDemention ns n
-    sh = drop (length n) ns
-    shape = if null sh then [1] else sh
-
-singleton :: Array a -> Maybe a
-singleton (Array vec ns)
-  | length ns == 1 && head ns == 1 = Just $ V.head vec
-  | otherwise = Nothing
-
--- Returns given list without given index
-beside :: Int -> [a] -> [a]
-beside i a = take i a ++ drop (i+1) a
-
--- Generate indexs from given combinations
-genIndex :: [[Int]] -> [Int] -> [[Int]]
-genIndex opt arr
-  | null opt = [arr]
-  | otherwise = concat $ genIndex (tail opt) <$> ((arr ++) . (:[]) <$> head opt)
-
--- split :: Show a => Array a -> Int -> IO() --Array a
-split :: Int -> Array a -> Array (Array a)
-split a arr
-  | length ns == 1 = Array (V.fromList [arr]) [1]
-  | otherwise = Array (V.fromList $ mk <$> genIndex ((\x->[1..x]) <$> newshape) []) newshape
-    where
-      vec = value arr
-      ns = shape arr
-      axis = a - 1 -- 1 based indexing
-      newshape = beside axis (shape arr)
-      mk i = Array (V.fromList $ (\x -> vec V.! convertDemention ns (take axis i ++ [x] ++ drop axis i)) <$> [1..ns!!axis]) [ns!!axis]
-
-main :: IO ()
-main = undefined
-  -- print $ reshape [2, 4] [1..8]
-  -- print $ reshape [2, 4] (iota 5)
-  -- print $ reshape [2, 4] [reshape [2, 4] [1..8]]
-  -- -- print $ singleton $ at (reshape [2, 4] [1..8]) [2, 2]
-  -- -- print $ reshape [2, 2] [reshape [2, 2] [1, 2, 4, 5]]
-  -- --split (reshape [3,3,3] (iota 9)) 1
-  -- print $ reshape [3,3,3] (iota 9)
-  -- print $ split 1 (reshape [3,4,5] (iota 9))
-  -- print $ split 1 (reshape [3] (iota 9))
-  -- --print $ split 2 $ reshape [2, 4] [reshape [2, 4] (iota 8)]
-  -- print $ reshape [2, 4] [reshape [2, 4] (iota 8)]
-  -- print $ reshape [2, 3] [reshape [2, 4] [reshape [2, 4] (iota 88888)]]
-  -- print $ reshape [2, 4] [reshape [2, 4] (iota 88888)]
-  --print $ split (reshape [3,3] [1..9]) 2
-
--- data Tree a
---   = Leaf a
---   | Branch [Tree a]
-
--- data Fix f = Fix (f (Fix f))
--- data TreeF a r = LeafF a | BranchF [r]
-
--- test :: Fix (TreeF Int)
--- test = undefined
+  fmap f (Array vec ns) = Array (fmap f vec) ns
 
 data NestedArray a
   = Node a
   | Nest (Array (NestedArray a))
+  deriving (Show)
 
 instance Functor NestedArray where
   fmap f (Node a) = Node $ f a
   fmap f (Nest arr) = Nest $ fmap (fmap f) arr
 
+fill :: NestedArray a -> NestedArray a
+fill (Nest a) = Nest $ f a
+  where
+    f (Array vec ns)
+      | length vec == targ = Array vec ns
+      | otherwise = Array (V.take targ $ V.fromList [1..targ] >> vec) ns
+      where
+        targ = product ns
+fill n = n
+
 reshape :: [Int] -> NestedArray a -> NestedArray a
-reshape r (Node a) = reshape r (Nest $ Array (V.fromList [Node a]) [1]) --Nest $ (fill $ Array (V.fromList [a]) r)
-reshape r (Nest a) = Nest $ fill $ Array (value a) r
+reshape r (Node a) = reshape r (Nest $ Array (V.fromList [Node a]) [1])
+reshape r (Nest a) = fill $ Nest $ Array (value a) r
 
 iota :: Int -> NestedArray Int
-iota a = fromList [1..a]
+iota a = fromList $ Node <$> [1..a]
 
 enclose :: NestedArray a -> NestedArray a
 enclose a = Nest $ Array (V.fromList [a]) [1]
+
+first :: NestedArray a -> NestedArray a
+first (Nest (Array vec _)) = vec V.! 0
+first a = a
 
 example :: NestedArray Int
 example = reshape [3, 3] (iota 5)
@@ -184,10 +131,10 @@ example2 :: NestedArray Int
 example2 = reshape [2, 2, 2] (enclose $ reshape [2, 2] (iota 5))
 
 example3 :: NestedArray Int
-example3 = reshape [2] $ Nest (Array (V.fromList [example, example2]) [2])
+example3 = reshape [3, 2] $ fromList [example, example2]
 
-fromList :: [a] -> NestedArray a
-fromList l = Nest $ Array (V.fromList $ Node <$> l) [length l]
+fromList :: [NestedArray a] -> NestedArray a
+fromList l = Nest $ Array (V.fromList l) [length l]
 
 toList :: NestedArray a -> [a]
 toList (Nest a) = concat $ toList <$> value a
@@ -199,32 +146,66 @@ depth = acc 0
     acc d (Nest a) = maximum (acc (d+1) <$> V.toList (value a))
     acc d (Node a) = d
 
-instance Show a => Show (NestedArray a) where
-  show a = show' (depth a) a
-    where
-      show' 1 (Nest a)
-        | length ns == 1 = unwords $ V.toList $ fmap (fmtStr . show) vec
-        | otherwise = box title $ intercalate "\n" $ show . at (Nest a) . (:[]) <$> [1..head ns]
-        where
-          ns = shape a
-          vec = value a
-          longest = maximum $ length . show <$> vec
-          fmtStr s = s ++ ([1..longest - length s] >> " ")
-          title = intercalate "," $ show <$> ns
-      show' d (Nest a)
-        | length ns <= 2 = chartWithTitle title (head ns) (show <$> V.toList (value a))
-        | otherwise = box title $ intercalate "\n" $ show . at (Nest a) . (:[]) <$> [1..head ns]
-        where
-          ns = shape a
-          title = intercalate "," $ show <$> ns
-      show' d (Node a) = show a
+lastN :: Int -> [a] -> [a]
+lastN n xs = drop (length xs - n) xs
+
+convertDemention :: [Int] -> [Int] -> Int
+convertDemention sha n = sum $ zipWith (*) mult $ subtract 1 <$> n
+  where
+    mult = fmap (product . ($ sha)) (lastN <$> reverse [1..(length sha -1)]) <> [1]
 
 at :: NestedArray a -> [Int] -> NestedArray a
-at (Node a) ns = Node a
 at (Nest (Array vec sh)) ns
   | any (<=0) ns          = throw IndexError
-  | length ns > length sh = throw IndexError
+  | length ns > length sh = throw RankError
   | otherwise = Nest $ Array (V.slice (convertDemention sh ns) (product newShape) vec) newShape
   where
     s = drop (length ns) sh
     newShape = if null s then [1] else s
+at a ns = a -- pattern for Node
+
+pretty :: Show a => NestedArray a -> String
+pretty a = p (depth a) a
+  where
+    title arr = intercalate "," $ show <$> shape arr
+    extDem a = box (title a) $ intercalate "\n" $ pretty . at (Nest a) . (:[]) <$> [1..head$shape a]
+    p 1 (Nest a)
+      | length ns == 1 = unwords $ V.toList $ fmap (fmtStr . pretty) (value a)
+      | otherwise = extDem a
+      where
+        ns = shape a
+        vec = value a
+        longest = maximum $ length . pretty <$> vec
+        fmtStr s = s ++ ([1..longest - length s] >> " ")
+    p d (Nest a)
+      | length ns <= 2 = chartWithTitle (title a) (last $ shape a) (pretty <$> V.toList (value a))
+      | otherwise = extDem a
+      where
+        ns = shape a
+    p d (Node a) = show a
+
+-- Returns given list without given index
+beside :: Int -> [a] -> [a]
+beside i a = take i a ++ drop (i+1) a
+
+-- Generate indexs from given combinations
+genIndex :: [[Int]] -> [Int] -> [[Int]]
+genIndex opt arr
+  | null opt = [arr]
+  | otherwise = concat $ genIndex (tail opt) <$> ((arr ++) . (:[]) <$> head opt)
+
+split :: Show a => Int -> NestedArray a ->  NestedArray a
+split ax (Nest (Array vec ns)) = fromList $ mk <$> genIndex req []
+  where
+    axis = ax - 1 -- 1 based indexing
+    newshape = beside axis ns
+    req = enumFromTo 1 <$> newshape
+    mkInd i x = take axis i ++ [x] ++ drop axis i
+    mk i = fromList $ (vec V.!) . convertDemention ns . mkInd i <$> [1..ns!!axis]
+split _ a = a -- case for Node
+
+
+
+main :: IO ()
+main = undefined
+
