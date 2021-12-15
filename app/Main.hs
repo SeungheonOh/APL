@@ -79,17 +79,25 @@ box title s = chartWithTitle title 1 [s]
 data APLException = RankError
                   | IndexError
                   | LengthError
+                  | InvalidAxisError
                   deriving (Show)
 
 instance Exception APLException
 
 data Array a = Array
-  { value :: V.Vector a
-  , shape :: [Int]
+  { _value :: V.Vector a
+  , _shape :: [Int]
   } deriving (Eq, Show)
 
 instance Functor Array where
   fmap f (Array vec ns) = Array (fmap f vec) ns
+
+instance Applicative Array where
+  pure a = Array (V.fromList [a]) [1]
+  liftA2 f (Array va sa) (Array vb sb)
+    = Array (V.zipWith f va vb) sh
+    where
+      sh = if length va > length vb then sa else sb
 
 data NestedArray a
   = Node a
@@ -99,6 +107,14 @@ data NestedArray a
 instance Functor NestedArray where
   fmap f (Node a) = Node $ f a
   fmap f (Nest arr) = Nest $ fmap (fmap f) arr
+
+instance Applicative NestedArray where
+  pure a = Node a
+  Node f <*> a = fmap f a
+  Nest f <*> a = Nest $ fmap (<*> a) f
+
+test =  liftA2 (+) (Node 5) (fromList [Node 4, Node 3])
+test2 = liftA2 (+) (iota 4) (iota 4)
 
 fill :: NestedArray a -> NestedArray a
 fill (Nest a) = Nest $ f a
@@ -112,7 +128,7 @@ fill n = n
 
 reshape :: [Int] -> NestedArray a -> NestedArray a
 reshape r (Node a) = reshape r (Nest $ Array (V.fromList [Node a]) [1])
-reshape r (Nest a) = fill $ Nest $ Array (value a) r
+reshape r (Nest a) = fill $ Nest $ Array (_value a) r
 
 iota :: Int -> NestedArray Int
 iota a = fromList $ Node <$> [1..a]
@@ -136,14 +152,25 @@ example3 = reshape [3, 2] $ fromList [example, example2]
 fromList :: [NestedArray a] -> NestedArray a
 fromList l = Nest $ Array (V.fromList l) [length l]
 
+fromA :: a -> NestedArray a
+fromA v = fromList [Node v]
+
 toList :: NestedArray a -> [a]
-toList (Nest a) = concat $ toList <$> value a
+toList (Nest a) = concat $ toList <$> _value a
 toList (Node a) = [a]
+
+shape :: NestedArray a -> [Int]
+shape (Nest (Array _ n)) = n
+shape (Node _) = throw RankError -- this should not be evoked
+
+value :: NestedArray a -> V.Vector (NestedArray a)
+value (Nest arr) = _value arr
+value (Node _) = throw RankError -- this should not be evoked
 
 depth :: NestedArray a -> Int
 depth = acc 0
   where
-    acc d (Nest a) = maximum (acc (d+1) <$> V.toList (value a))
+    acc d (Nest a) = maximum (acc (d+1) <$> V.toList (_value a))
     acc d (Node a) = d
 
 lastN :: Int -> [a] -> [a]
@@ -167,21 +194,21 @@ at a ns = a -- pattern for Node
 pretty :: Show a => NestedArray a -> String
 pretty a = p (depth a) a
   where
-    title arr = intercalate "," $ show <$> shape arr
-    extDem a = box (title a) $ intercalate "\n" $ pretty . at (Nest a) . (:[]) <$> [1..head$shape a]
+    title (Array _ ns) = intercalate "," $ show <$> ns
+    extDem a = box (title a) $ intercalate "\n" $ pretty . at (Nest a) . (:[]) <$> [1..head$_shape a]
     p 1 (Nest a)
-      | length ns == 1 = unwords $ V.toList $ fmap (fmtStr . pretty) (value a)
+      | length ns == 1 = unwords $ V.toList $ fmap (fmtStr . pretty) vec
       | otherwise = extDem a
       where
-        ns = shape a
-        vec = value a
+        ns = _shape a
+        vec = _value a
         longest = maximum $ length . pretty <$> vec
         fmtStr s = s ++ ([1..longest - length s] >> " ")
     p d (Nest a)
-      | length ns <= 2 = chartWithTitle (title a) (last $ shape a) (pretty <$> V.toList (value a))
+      | length ns <= 2 = chartWithTitle (title a) (last $ ns) (pretty <$> V.toList (_value a))
       | otherwise = extDem a
       where
-        ns = shape a
+        ns = _shape a
     p d (Node a) = show a
 
 -- Returns given list without given index
@@ -194,8 +221,10 @@ genIndex opt arr
   | null opt = [arr]
   | otherwise = concat $ genIndex (tail opt) <$> ((arr ++) . (:[]) <$> head opt)
 
-split :: Show a => Int -> NestedArray a ->  NestedArray a
-split ax (Nest (Array vec ns)) = fromList $ mk <$> genIndex req []
+split :: Int -> NestedArray a -> NestedArray a
+split ax (Nest (Array vec ns))
+  | length ns < ax = throw InvalidAxisError
+  | otherwise = reshape newshape $ fromList $ mk <$> genIndex req []
   where
     axis = ax - 1 -- 1 based indexing
     newshape = beside axis ns
@@ -204,8 +233,29 @@ split ax (Nest (Array vec ns)) = fromList $ mk <$> genIndex req []
     mk i = fromList $ (vec V.!) . convertDemention ns . mkInd i <$> [1..ns!!axis]
 split _ a = a -- case for Node
 
+-- apl drop
+purge :: [Int] -> NestedArray a -> NestedArray a
+purge d (Nest (Array vec ns))
+  | length d > length ns = throw RankError
+  | otherwise = undefined
+purge _ a = a
 
+op :: (a -> b -> c) -> NestedArray a -> NestedArray b -> NestedArray c
+op f (Node a) b = fmap (f a) b
+op f a (Node b) = fmap (`f` b) a
+op f a b
+  | shape a == [1]     = fromList $ op f (first a) . at b . (:[]) <$> [1..head $ shape b]
+  | shape b == [1]     = fromList $ flip (op f) (first b) . at a . (:[]) <$> [1..head $ shape a]
+  | shape a == shape b = Nest $ Array (V.zipWith (op f) (value a) (value b)) (shape a)
+  | otherwise          = throw LengthError
+
+atest :: NestedArray Float
+atest = fmap (/2) (fromList [Node 2, Node 4, Node 8])
+
+
+--btest = fmap (+(fromA 4)) (iota 5)
+btest :: NestedArray Int
+btest = fromA 5
 
 main :: IO ()
 main = undefined
-
