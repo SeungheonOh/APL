@@ -44,6 +44,7 @@ executable test
     build-depends:
         base ^>=4.14.3.0,
         vector,
+        free,
         test
 
     hs-source-dirs:   app
