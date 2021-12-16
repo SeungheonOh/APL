@@ -106,14 +106,16 @@ data NestedArray a
 
 instance Functor NestedArray where
   fmap f (Node a) = Node $ f a
-  fmap f (Nest arr) = Nest $ fmap (fmap f) arr
+  fmap f (Nest arr)
+    | _shape arr == [1] = fmap f (first $ Nest arr) -- Reduce singletons
+    | otherwise = Nest $ fmap (fmap f) arr
 
 instance Applicative NestedArray where
   pure a = Node a
   Node f <*> a = fmap f a
   Nest f <*> a = Nest $ fmap (<*> a) f
 
-test =  liftA2 (+) (Node 5) (fromList [Node 4, Node 3])
+test =  liftA2 (+) (Node 5) (fromList [4, 3])
 test2 = liftA2 (+) (iota 4) (iota 4)
 
 fill :: NestedArray a -> NestedArray a
@@ -126,12 +128,35 @@ fill (Nest a) = Nest $ f a
         targ = product ns
 fill n = n
 
-reshape :: [Int] -> NestedArray a -> NestedArray a
-reshape r (Node a) = reshape r (Nest $ Array (V.fromList [Node a]) [1])
-reshape r (Nest a) = fill $ Nest $ Array (_value a) r
+fillWith :: NestedArray a -> NestedArray a -> NestedArray a
+fillWith r (Nest a) = Nest $ f a
+  where
+    f (Array vec ns)
+      | length vec == targ = Array vec ns
+      | otherwise = Array (V.take targ $ vec V.++ V.fromList ([1..targ] >> [r])) ns
+      where
+        targ = product ns
+fillWith _ n = n
+
+reshape :: NestedArray Int -> NestedArray a -> NestedArray a
+reshape r a
+  | length (shape r) /= 1 = throw RankError
+  | otherwise = f (toList r) a
+    where
+      f r (Node a) = f r (Nest $ Array (V.fromList [Node a]) [1])
+      f r (Nest a) = fill $ Nest $ Array (_value a) r
+
+reshapeWith :: NestedArray Int -> NestedArray a -> NestedArray a -> NestedArray a
+reshapeWith rp r a
+  | length (shape r) /= 1 = throw RankError
+  | otherwise = f (toList rp) r a
+    where
+      f rp r (Node a) = f rp r (Nest $ Array (V.fromList [Node a]) [1])
+      f rp r (Nest a) = fillWith r $ Nest $ Array (_value a) rp
+
 
 iota :: Int -> NestedArray Int
-iota a = fromList $ Node <$> [1..a]
+iota a = nest $ Node <$> [1..a]
 
 enclose :: NestedArray a -> NestedArray a
 enclose a = Nest $ Array (V.fromList [a]) [1]
@@ -141,19 +166,22 @@ first (Nest (Array vec _)) = vec V.! 0
 first a = a
 
 example :: NestedArray Int
-example = reshape [3, 3] (iota 5)
+example = reshape (fromList [3, 3]) (iota 5)
 
 example2 :: NestedArray Int
-example2 = reshape [2, 2, 2] (enclose $ reshape [2, 2] (iota 5))
+example2 = reshape (fromList [2, 2, 2]) (enclose $ reshape (fromList [2, 2]) (iota 5))
 
 example3 :: NestedArray Int
-example3 = reshape [3, 2] $ fromList [example, example2]
+example3 = reshape (fromList [3, 2]) $ nest [example, example2]
 
-fromList :: [NestedArray a] -> NestedArray a
-fromList l = Nest $ Array (V.fromList l) [length l]
+nest :: [NestedArray a] -> NestedArray a
+nest l = Nest $ Array (V.fromList l) [length l]
+
+fromList :: [a] -> NestedArray a
+fromList l = Nest $ Array (V.fromList $ Node <$> l) [length l]
 
 fromA :: a -> NestedArray a
-fromA v = fromList [Node v]
+fromA v = Nest $ Array (V.fromList [Node v]) [1]
 
 toList :: NestedArray a -> [a]
 toList (Nest a) = concat $ toList <$> _value a
@@ -185,10 +213,12 @@ at :: NestedArray a -> [Int] -> NestedArray a
 at (Nest (Array vec sh)) ns
   | any (<=0) ns          = throw IndexError
   | length ns > length sh = throw RankError
-  | otherwise = Nest $ Array (V.slice (convertDemention sh ns) (product newShape) vec) newShape
+  | newShape == [1]       = vec V.! ind -- prevent useless nests
+  | otherwise = Nest $ Array (V.slice ind (product newShape) vec) newShape
   where
     s = drop (length ns) sh
     newShape = if null s then [1] else s
+    ind = convertDemention sh ns
 at a ns = a -- pattern for Node
 
 pretty :: Show a => NestedArray a -> String
@@ -196,16 +226,22 @@ pretty a = p (depth a) a
   where
     title (Array _ ns) = intercalate "," $ show <$> ns
     extDem a = box (title a) $ intercalate "\n" $ pretty . at (Nest a) . (:[]) <$> [1..head$_shape a]
+    fmtStr w s = s ++ ([1..w - length s] >> " ")
+    mkLine w (Nest a) = unwords $ V.toList $ fmap (fmtStr w . pretty) (_value a)
+    mkLine _ (Node a) = show a
     p 1 (Nest a)
-      | length ns == 1 = unwords $ V.toList $ fmap (fmtStr . pretty) vec
+      | length ns == 1 = mkLine d1Max na
+      | length ns == 2 = box (title a) $ intercalate "\n" $ mkLine d2Max <$> d2
       | otherwise = extDem a
       where
+        na = Nest a
         ns = _shape a
-        vec = _value a
-        longest = maximum $ length . pretty <$> vec
-        fmtStr s = s ++ ([1..longest - length s] >> " ")
+        lineMax a = maximum $ length . pretty <$> value a
+        d1Max = lineMax na
+        d2 = at na . (:[]) <$> [1..head$shape na]
+        d2Max = maximum $ lineMax <$> d2
     p d (Nest a)
-      | length ns <= 2 = chartWithTitle (title a) (last $ ns) (pretty <$> V.toList (_value a))
+      | length ns <= 2 = chartWithTitle (title a) (last ns) (pretty <$> V.toList (_value a))
       | otherwise = extDem a
       where
         ns = _shape a
@@ -224,38 +260,48 @@ genIndex opt arr
 split :: Int -> NestedArray a -> NestedArray a
 split ax (Nest (Array vec ns))
   | length ns < ax = throw InvalidAxisError
-  | otherwise = reshape newshape $ fromList $ mk <$> genIndex req []
+  | otherwise = reshape (fromList newshape) $ nest $ mk <$> genIndex req []
   where
     axis = ax - 1 -- 1 based indexing
     newshape = beside axis ns
     req = enumFromTo 1 <$> newshape
     mkInd i x = take axis i ++ [x] ++ drop axis i
-    mk i = fromList $ (vec V.!) . convertDemention ns . mkInd i <$> [1..ns!!axis]
+    mk i = nest $ (vec V.!) . convertDemention ns . mkInd i <$> [1..ns!!axis]
 split _ a = a -- case for Node
 
+
 -- apl drop
-purge :: [Int] -> NestedArray a -> NestedArray a
-purge d (Nest (Array vec ns))
-  | length d > length ns = throw RankError
-  | otherwise = undefined
+purge :: Show a => NestedArray Int -> NestedArray a -> NestedArray a
+purge d (Nest a)
+  | length (shape d) /= 1     = throw RankError
+  | head (shape d)  > length (_shape a) = throw RankError
+  | otherwise = reshape newshape $ nest $ at (Nest a) <$> genIndex req []
+  where
+    rank = length $ _shape a
+    diff = reshapeWith (fromList [rank]) (Node 0) $ d
+    newshape = op (-) (fromList $ _shape a) $ abs <$> diff
+    mkInd a b
+      | b >= 0 = [1+b..a]
+      | otherwise = [1..a+b]
+    req = toList $ op mkInd (fromList $ _shape a) diff
+    mk i = at (Nest a) 
 purge _ a = a
 
 op :: (a -> b -> c) -> NestedArray a -> NestedArray b -> NestedArray c
 op f (Node a) b = fmap (f a) b
 op f a (Node b) = fmap (`f` b) a
 op f a b
-  | shape a == [1]     = fromList $ op f (first a) . at b . (:[]) <$> [1..head $ shape b]
-  | shape b == [1]     = fromList $ flip (op f) (first b) . at a . (:[]) <$> [1..head $ shape a]
+  | shape a == [1]     = Nest $ Array (op f (first a) <$> value b)        $ shape b
+  | shape b == [1]     = Nest $ Array (flip (op f) (first b) <$> value a) $ shape a
   | shape a == shape b = Nest $ Array (V.zipWith (op f) (value a) (value b)) (shape a)
   | otherwise          = throw LengthError
-
-atest :: NestedArray Float
-atest = fmap (/2) (fromList [Node 2, Node 4, Node 8])
-
-
---btest = fmap (+(fromA 4)) (iota 5)
-btest :: NestedArray Int
-btest = fromA 5
+    where
+      test = op f (first a) <$> value b
 
 main :: IO ()
 main = undefined
+
+a = reshape (fromList [3, 3]) $ iota 9
+b = enclose a
+
+-- putStrLn $ pretty $ op (+) (reshape [3, 3] $ iota 3) (enclose $ reshape [3,3] $ iota 5)
