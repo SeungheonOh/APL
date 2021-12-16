@@ -250,6 +250,9 @@ pretty a
         ns = _shape a
     p d (Node a) = show a
 
+reduce :: (NestedArray a -> NestedArray a -> NestedArray a) -> NestedArray a -> NestedArray a
+reduce f a = foldr1 f $ value a
+
 -- Returns given list without given index
 beside :: Int -> [a] -> [a]
 beside i a = take i a ++ drop (i+1) a
@@ -272,9 +275,8 @@ split ax (Nest (Array vec ns))
     mk i = nest $ (vec V.!) . convertDemention ns . mkInd i <$> [1..ns!!axis]
 split _ a = a -- case for Node
 
-
 -- apl drop
-purge :: Show a => NestedArray Int -> NestedArray a -> NestedArray a
+purge :: NestedArray Int -> NestedArray a -> NestedArray a
 purge d (Nest a)
   | length (shape d) /= 1               = throw RankError
   | head (shape d)  > length (_shape a) = throw RankError
@@ -289,6 +291,40 @@ purge d (Nest a)
       | otherwise = [1..a+b]
     req = toList $ op mkInd (fromList $ _shape a) diff
 purge _ a = a
+
+rotate :: NestedArray Int -> NestedArray a -> NestedArray a
+rotate d a
+  | length (shape d) /= 1              = throw RankError
+  | head (shape d) > length (shape a) = throw RankError
+  | otherwise = reshape newshape $ nest $ at a <$> genIndex req []
+    where
+      rank = length $ shape a
+      newshape = fromList $ shape a
+      rotFac = reshapeWith (fromList [rank]) (Node 0) d
+      rot :: [Int] -> Int -> [Int]
+      rot xs n = take lxs . drop (n `mod` lxs) . cycle $ xs
+        where lxs = length xs
+      req = toList $ op (rot . enumFromTo 1) (fromList $ shape a) rotFac
+
+innerProduct :: Show c =>
+                (NestedArray c -> NestedArray c -> NestedArray c)
+             -> (NestedArray a -> NestedArray b -> NestedArray c)
+             -> NestedArray a
+             -> NestedArray b
+             -> NestedArray c
+innerProduct o1 o2 a b
+  | head (shape a) == 1 = reduce o1 $ o2 a b
+  | head (shape b) == 1 = reduce o1 $ o2 a b
+  | last (shape a) /= head (shape b) = throw LengthError
+  | null (value newshape) = foldr1 o1 $ V.zipWith o2 (value a) (value b)
+  | otherwise = reshape newshape $ nest $ mk <$> genIndex req []
+  where
+    overlapped = [1..head (shape b)]
+    newshape = fromList $ init (shape a) ++ tail (shape b)
+    req = enumFromTo 1 <$> toList newshape
+    mkL i = at a . (\x->take (length (shape a) - 1) i ++ [x]) <$> overlapped
+    mkR i = at b . (\x->x : lastN (length (shape b) - 1) i) <$> overlapped
+    mk  i = foldr1 o1 $ zipWith o2 (mkL i) (mkR i)
 
 op :: (a -> b -> c) -> NestedArray a -> NestedArray b -> NestedArray c
 op f (Node a) b = fmap (f a) b
