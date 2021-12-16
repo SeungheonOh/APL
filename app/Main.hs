@@ -282,12 +282,12 @@ purge d (Nest a)
   where
     rank = length $ _shape a
     diff = reshapeWith (fromList [rank]) (Node 0) d
-    newshape = op (-) (fromList $ _shape a) $ abs <$> diff
+    lim x = if x < 0 then 0 else x
+    newshape = lim <$> op (-) (fromList $ _shape a) (abs <$> diff)
     mkInd a b
       | b >= 0 = [1+b..a]
       | otherwise = [1..a+b]
     req = toList $ op mkInd (fromList $ _shape a) diff
-    mk i = at (Nest a)
 purge _ a = a
 
 op :: (a -> b -> c) -> NestedArray a -> NestedArray b -> NestedArray c
@@ -298,8 +298,6 @@ op f a b
   | shape b == [1]     = Nest $ Array (flip (op f) (first b) <$> value a) $ shape a
   | shape a == shape b = Nest $ Array (V.zipWith (op f) (value a) (value b)) (shape a)
   | otherwise          = throw LengthError
-    where
-      test = op f (first a) <$> value b
 
 main :: IO ()
 main = undefined
