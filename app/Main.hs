@@ -51,7 +51,7 @@ chartWithTitle :: String -> Int -> [String] -> String
 chartWithTitle title col s = top ++ mid ++ bot
   where
     ntimes n s = [1..n] >> s
-    strs = lines <$> s ++ ntimes ((length s * (col-1))`mod`col) [""]
+    strs = lines <$> s ++ ntimes (length s * (col-1)`mod`col) [""]
     maxCol = maximum $ length <$> concat strs
     maxRow = maximum $ length <$> strs
     fmtStr s = ntimes (maxCol - length s) " " ++ s
@@ -80,6 +80,7 @@ data APLException = RankError
                   | IndexError
                   | LengthError
                   | InvalidAxisError
+                  | Debug
                   deriving (Show)
 
 instance Exception APLException
@@ -148,7 +149,7 @@ reshape r a
 
 reshapeWith :: NestedArray Int -> NestedArray a -> NestedArray a -> NestedArray a
 reshapeWith rp r a
-  | length (shape r) /= 1 = throw RankError
+  | length (shape rp) /= 1 = throw RankError
   | otherwise = f (toList rp) r a
     where
       f rp r (Node a) = f rp r (Nest $ Array (V.fromList [Node a]) [1])
@@ -189,11 +190,11 @@ toList (Node a) = [a]
 
 shape :: NestedArray a -> [Int]
 shape (Nest (Array _ n)) = n
-shape (Node _) = throw RankError -- this should not be evoked
+shape (Node _) = [1]
 
 value :: NestedArray a -> V.Vector (NestedArray a)
 value (Nest arr) = _value arr
-value (Node _) = throw RankError -- this should not be evoked
+value (Node v) = V.fromList [Node v]
 
 depth :: NestedArray a -> Int
 depth = acc 0
@@ -222,7 +223,9 @@ at (Nest (Array vec sh)) ns
 at a ns = a -- pattern for Node
 
 pretty :: Show a => NestedArray a -> String
-pretty a = p (depth a) a
+pretty a
+  | 0 `elem` shape a = "EMPTY"
+  | otherwise = p (depth a) a
   where
     title (Array _ ns) = intercalate "," $ show <$> ns
     extDem a = box (title a) $ intercalate "\n" $ pretty . at (Nest a) . (:[]) <$> [1..head$_shape a]
@@ -273,18 +276,18 @@ split _ a = a -- case for Node
 -- apl drop
 purge :: Show a => NestedArray Int -> NestedArray a -> NestedArray a
 purge d (Nest a)
-  | length (shape d) /= 1     = throw RankError
+  | length (shape d) /= 1               = throw RankError
   | head (shape d)  > length (_shape a) = throw RankError
   | otherwise = reshape newshape $ nest $ at (Nest a) <$> genIndex req []
   where
     rank = length $ _shape a
-    diff = reshapeWith (fromList [rank]) (Node 0) $ d
+    diff = reshapeWith (fromList [rank]) (Node 0) d
     newshape = op (-) (fromList $ _shape a) $ abs <$> diff
     mkInd a b
       | b >= 0 = [1+b..a]
       | otherwise = [1..a+b]
     req = toList $ op mkInd (fromList $ _shape a) diff
-    mk i = at (Nest a) 
+    mk i = at (Nest a)
 purge _ a = a
 
 op :: (a -> b -> c) -> NestedArray a -> NestedArray b -> NestedArray c
@@ -301,7 +304,6 @@ op f a b
 main :: IO ()
 main = undefined
 
-a = reshape (fromList [3, 3]) $ iota 9
-b = enclose a
-
 -- putStrLn $ pretty $ op (+) (reshape [3, 3] $ iota 3) (enclose $ reshape [3,3] $ iota 5)
+p :: Show a => NestedArray a -> IO ()
+p a = putStrLn $ pretty a
