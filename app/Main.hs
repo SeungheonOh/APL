@@ -288,20 +288,19 @@ split _ a = a -- case for Node
 
 -- apl drop
 purge :: NestedArray Int -> NestedArray a -> NestedArray a
-purge d (Nest a)
+purge d a
   | length (shape d) /= 1               = throw RankError
-  | head (shape d)  > length (_shape a) = throw RankError
-  | otherwise = reshape newshape $ nest $ at (Nest a) <$> genIndex req []
+  | head (shape d)  > length (shape a) = throw RankError
+  | otherwise = reshape newshape $ nest $ at a <$> genIndex req []
   where
-    rank = length $ _shape a
+    rank = length $ shape a
     diff = reshapeWith (fromList [rank]) (Node 0) d
     lim x = if x < 0 then 0 else x
-    newshape = lim <$> op (-) (fromList $ _shape a) (abs <$> diff)
+    newshape = lim <$> op (-) (fromList $ shape a) (abs <$> diff)
     mkInd a b
       | b >= 0 = [1+b..a]
       | otherwise = [1..a+b]
-    req = toList $ op mkInd (fromList $ _shape a) diff
-purge _ a = a
+    req = toList $ op mkInd (fromList $ shape a) diff
 
 rotate :: NestedArray Int -> NestedArray a -> NestedArray a
 rotate d a
