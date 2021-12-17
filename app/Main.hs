@@ -47,6 +47,8 @@ Here we have full control of nested levels. :)
 {-
 TODO Make sure the current behavior of reshape when given [] is current
 change related function(reduce, split) if change needed 
+
+TODO Muti dementional iota
 -}
 
 chartWithTitle :: String -> Int -> [String] -> String
