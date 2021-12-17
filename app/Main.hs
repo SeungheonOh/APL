@@ -44,8 +44,10 @@ the structure does the recursion.
 -- f (Nest a) = ...
 Here we have full control of nested levels. :)
 -}
-
-
+{-
+TODO Make sure the current behavior of reshape when given [] is current
+change related function(reduce, split) if change needed 
+-}
 
 chartWithTitle :: String -> Int -> [String] -> String
 chartWithTitle title col s = top ++ mid ++ bot
@@ -142,6 +144,7 @@ fillWith _ n = n
 reshape :: NestedArray Int -> NestedArray a -> NestedArray a
 reshape r a
   | length (shape r) /= 1 = throw RankError
+  | null (value r) = reshape (Node 1) a -- empty target shape should be considered as a length of 1
   | otherwise = f (toList r) a
     where
       f r (Node a) = f r (Nest $ Array (V.fromList [Node a]) [1])
@@ -150,6 +153,7 @@ reshape r a
 reshapeWith :: NestedArray Int -> NestedArray a -> NestedArray a -> NestedArray a
 reshapeWith rp r a
   | length (shape rp) /= 1 = throw RankError
+  | null (value r) = reshapeWith (Node 1) r a -- empty target shape should be considered as a length of 1
   | otherwise = f (toList rp) r a
     where
       f rp r (Node a) = f rp r (Nest $ Array (V.fromList [Node a]) [1])
@@ -174,6 +178,8 @@ example2 = reshape (fromList [2, 2, 2]) (enclose $ reshape (fromList [2, 2]) (io
 
 example3 :: NestedArray Int
 example3 = reshape (fromList [3, 2]) $ nest [example, example2]
+
+example4 = reshape (fromList [3]) $ nest $ [example]
 
 nest :: [NestedArray a] -> NestedArray a
 nest l = Nest $ Array (V.fromList l) [length l]
@@ -251,7 +257,12 @@ pretty a
     p d (Node a) = show a
 
 reduce :: (NestedArray a -> NestedArray a -> NestedArray a) -> NestedArray a -> NestedArray a
-reduce f a = foldr1 f $ value a
+reduce f a = reduceAxis (length $ shape a) f a
+
+reduceAxis :: Int -> (NestedArray a -> NestedArray a -> NestedArray a) -> NestedArray a -> NestedArray a
+reduceAxis ax f a = reshape (fromList $ beside (ax-1) (shape a)) $ nest e
+  where
+    e = V.toList $ foldr1 f . value <$> value (split ax a)
 
 -- Returns given list without given index
 beside :: Int -> [a] -> [a]
@@ -294,7 +305,7 @@ purge _ a = a
 
 rotate :: NestedArray Int -> NestedArray a -> NestedArray a
 rotate d a
-  | length (shape d) /= 1              = throw RankError
+  | length (shape d) /= 1             = throw RankError
   | head (shape d) > length (shape a) = throw RankError
   | otherwise = reshape newshape $ nest $ at a <$> genIndex req []
     where
@@ -306,8 +317,14 @@ rotate d a
         where lxs = length xs
       req = toList $ op (rot . enumFromTo 1) (fromList $ shape a) rotFac
 
-innerProduct :: Show c =>
-                (NestedArray c -> NestedArray c -> NestedArray c)
+rotateFirst :: NestedArray Int -> NestedArray a -> NestedArray a
+rotateFirst d a = rotate rev a
+  where
+    rank = length $ shape a
+    rotFac = reshapeWith (fromList [rank]) (Node 0) d
+    rev = Nest $ Array (V.reverse $ value rotFac) [rank]
+
+innerProduct :: (NestedArray c -> NestedArray c -> NestedArray c)
              -> (NestedArray a -> NestedArray b -> NestedArray c)
              -> NestedArray a
              -> NestedArray b
@@ -326,6 +343,19 @@ innerProduct o1 o2 a b
     mkR i = at b . (\x->x : lastN (length (shape b) - 1) i) <$> overlapped
     mk  i = foldr1 o1 $ zipWith o2 (mkL i) (mkR i)
 
+outerProduct :: (NestedArray a -> NestedArray b -> NestedArray c)
+             -> NestedArray a
+             -> NestedArray b
+             -> NestedArray c
+outerProduct f a b
+  | head (shape a) == 1 = reshape (fromList $ shape b) $ nest $ mk <$> genIndex req []
+  | head (shape b) == 1 = reshape (fromList $ shape a) $ nest $ mk <$> genIndex req []
+  | otherwise = reshape newshape $ nest $ mk <$> genIndex req []
+  where
+    newshape = fromList $ shape a ++ shape b
+    req = enumFromTo 1 <$> toList newshape
+    mk i = f (at a $ take (length (shape a)) i) (at b $ lastN (length (shape b)) i)
+
 op :: (a -> b -> c) -> NestedArray a -> NestedArray b -> NestedArray c
 op f (Node a) b = fmap (f a) b
 op f a (Node b) = fmap (`f` b) a
@@ -335,8 +365,59 @@ op f a b
   | shape a == shape b = Nest $ Array (V.zipWith (op f) (value a) (value b)) (shape a)
   | otherwise          = throw LengthError
 
+
+-- rboard :: [[Integer]]
+rboard :: [[Int]]
+rboard = [
+  [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 1, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0, 1, 0, 0, 0],
+  [0, 0, 0, 0, 1, 1, 1, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]
+-- rboard = [
+--   [0, 0, 0, 0, 0, 0, 0],
+--   [0, 0, 0, 0, 0, 0, 0],
+--   [0, 0, 0, 0, 0, 0, 0],
+--   [0, 0, 0, 1, 0, 0, 0],
+--   [0, 0, 0, 0, 0, 0, 0],
+--   [0, 0, 0, 0, 0, 0, 0],
+--   [0, 0, 0, 0, 0, 0, 0]]
+
+board :: NestedArray Int
+board = reshape (fromList [length rboard, length $ head rboard]) $ fromList $ concat rboard
+
+orAPL :: Int -> Int -> Int
+orAPL 0 0 = 0
+orAPL _ _ = 1
+
+andAPL :: Int -> Int -> Int
+andAPL 0 0 = 0
+andAPL _ 0 = 0
+andAPL 0 _ = 0
+andAPL _ _ = 1
+
+toAPLBool True = 1
+toAPLBool False = 0
+
+life :: NestedArray Int -> NestedArray Int
+life b = innerProduct (op orAPL) (op andAPL)
+         (nest [Node 1, b])
+         (op (\x y -> toAPLBool (x == y))
+          (fromList [3, 4]) $
+           reduce (op (+)) (reduce (op (+)) 
+                            $ outerProduct rotate (fromList [-1, 0, 1])
+                            $ outerProduct rotateFirst (fromList [-1, 0, 1]) (enclose b)))
+
 main :: IO ()
-main = undefined
+main = do
+  p $ board
+  p $ life board
+  p $ life $ life board
+  p $ life $ life $ life board
+  p $ life $ life $ life $ life board
+
 
 -- putStrLn $ pretty $ op (+) (reshape [3, 3] $ iota 3) (enclose $ reshape [3,3] $ iota 5)
 p :: Show a => NestedArray a -> IO ()
