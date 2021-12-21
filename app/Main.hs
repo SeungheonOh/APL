@@ -181,7 +181,7 @@ example2 = reshape (fromList [2, 2, 2]) (enclose $ reshape (fromList [2, 2]) (io
 example3 :: NestedArray Int
 example3 = reshape (fromList [3, 2]) $ nest [example, example2]
 
-example4 = reshape (fromList [3]) $ nest $ [example]
+example4 = reshape (fromList [3]) $ nest [example]
 
 nest :: [NestedArray a] -> NestedArray a
 nest l = Nest $ Array (V.fromList l) [length l]
@@ -413,7 +413,7 @@ life b = innerProduct (op orAPL) (op andAPL)
 
 main :: IO ()
 main = do
-  p $ board
+  p board
   p $ life board
   p $ life $ life board
   p $ life $ life $ life board
