@@ -78,6 +78,7 @@ chart :: Int -> [String] -> String
 chart = chartWithTitle ""
 
 box :: String -> String -> String
+
 box title s = chartWithTitle title 1 [s]
 
 data APLException = RankError
@@ -264,7 +265,7 @@ reduce f a = reduceAxis (length $ shape a) f a
 reduceAxis :: Int -> (NestedArray a -> NestedArray a -> NestedArray a) -> NestedArray a -> NestedArray a
 reduceAxis ax f a = reshape (fromList $ beside (ax-1) (shape a)) $ nest e
   where
-    e = V.toList $ foldr1 f . value <$> value (split ax a)
+    e = V.toList $ foldr1 f . value <$> value (splitAxis ax a)
 
 -- Returns given list without given index
 beside :: Int -> [a] -> [a]
@@ -276,8 +277,8 @@ genIndex opt arr
   | null opt = [arr]
   | otherwise = concat $ genIndex (tail opt) <$> ((arr ++) . (:[]) <$> head opt)
 
-split :: Int -> NestedArray a -> NestedArray a
-split ax (Nest (Array vec ns))
+splitAxis :: Int -> NestedArray a -> NestedArray a
+splitAxis ax (Nest (Array vec ns))
   | length ns < ax = throw InvalidAxisError
   | otherwise = reshape (fromList newshape) $ nest $ mk <$> genIndex req []
   where
@@ -286,7 +287,10 @@ split ax (Nest (Array vec ns))
     req = enumFromTo 1 <$> newshape
     mkInd i x = take axis i ++ [x] ++ drop axis i
     mk i = nest $ (vec V.!) . convertDemention ns . mkInd i <$> [1..ns!!axis]
-split _ a = a -- case for Node
+splitAxis _ a = a -- case for Node
+
+split :: NestedArray a -> NestedArray a
+split a = splitAxis (length $ shape a) a
 
 -- apl drop
 purge :: NestedArray Int -> NestedArray a -> NestedArray a
