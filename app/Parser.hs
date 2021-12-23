@@ -109,20 +109,6 @@ testd = parseTest pAPL "hello,world .ρ .z 1,2,3,45"
 teste = parseTest pAPL ".ρ .z 1,2,3,4"
 testf = parseTest pAPL "1,1 .rotate 3,3 .reshape 1,2,3,4,5,6,7,8"
 
--- prog :: QuasiQuoter
--- prog = QuasiQuoter {
---       quoteExp = \str -> do
---         l <- TH.location
---         let pos = (TH.loc_filename l,
---                    fst (TH.loc_start l),
---                    snd (TH.loc_start l))
---         c <- parse pAPLExpr str
---         dataToExpQ (const Nothing) c
---     , quotePat  = undefined
---     , quoteType = undefined
---     , quoteDec  = undefined
---     }
-
 hasAlpha :: APLExpr -> Bool
 hasAlpha Alpha = True
 hasAlpha (DyadicOp _ _ a1 a2) = hasAlpha a1 || hasAlpha a2
@@ -141,15 +127,19 @@ isDyadic a = hasAlpha a && hasOmega a
 isMonadic :: APLExpr -> Bool
 isMonadic a = not (hasAlpha a) && hasOmega a
 
-monadicOps :: String -> (NestedArray a -> NestedArray a)
-monadicOps "split" = split
-monadicOps _ = id
+monadicOps :: String -> TH.ExpQ 
+monadicOps "split" = [| split |]
+monadicOps "enclose" = [| enclose |]
+monadicOps _       = [| id |]
 
-dyadicOps :: String -> (NestedArray Int -> NestedArray a -> NestedArray a)
-dyadicOps "drop" = purge
-dyadicOps "reshape" = reshape
-dyadicOps "rotate" = rotateFirst
-dyadicOps _ = \x y -> y
+dyadicOps :: String -> TH.ExpQ 
+dyadicOps "drop"    = [| purge |]
+dyadicOps "reshape" = [| reshape |] 
+dyadicOps "rotate"  = [| rotateFirst |]
+dyadicOps "rotateFirst"  = [| rotate |]
+dyadicOps "plus"  = [| op (+) |]
+dyadicOps "eq"  = [| op (==) |]
+dyadicOps _         = [| \x y -> y |]
 
 antiExprExp :: APLExpr -> Maybe (TH.Q TH.Exp)
 antiExprExp Alpha = Just $ [| a |]
@@ -158,26 +148,28 @@ antiExprExp (MonadicOp n axis a) = do
   na <- antiExprExp a
   return $ [|$f $na|]
     where
-      f = [| monadicOps n |]
+      f = monadicOps n 
 antiExprExp (DyadicOp n axis a1 a2) = do
   na1 <- antiExprExp a1
   na2 <- antiExprExp a2
   return $ [|$f $na1 $na2|]
     where
-      f = [| dyadicOps n |]
+      f = dyadicOps n
 antiExprExp (Literal l) = Just $ [| fromList l |]
 
 quoteExprExp :: String -> TH.Q TH.Exp
-quoteExprExp str = do
-          e >>= mkExpQ
+quoteExprExp str = e >>= mkExpQ
   where
     e = case parse pAPL "" (T.pack str) of
                 Left e -> fail $ show e
                 Right a -> return a
-    mkExpQ a
-      | isDyadic a = lamE [TH.varP (TH.mkName "a"), TH.varP (TH.mkName "w")] $ dataToExpQ (const Nothing `extQ` antiExprExp) a
-      | isMonadic a = lamE [TH.varP (TH.mkName "w")] $ dataToExpQ (const Nothing `extQ` antiExprExp) a
-      | otherwise = dataToExpQ (const Nothing `extQ` antiExprExp) a
+    exq a = dataToExpQ (const Nothing `extQ` antiExprExp) a
+    mkExpQ exp
+      -- isDyadic a = lamE [TH.varP (TH.mkName "a"), TH.varP (TH.mkName "w")] $ exq a
+      -- isMonadic exp = lamE [TH.varP (TH.mkName "w")] $ exq exp
+      | isDyadic exp = [|\a w -> $(exq exp)|]
+      | isMonadic exp = [|\w -> $(exq exp)|]
+      | otherwise = exq exp
 
 apl :: QuasiQuoter
 apl = QuasiQuoter
@@ -186,3 +178,16 @@ apl = QuasiQuoter
     , quoteType = undefined
     , quoteDec  = undefined
     }
+
+{-
+NOTE/TODO
+
+Need to find a way to store APL operations of different types. For example "NestedArray Int -> NestedArray a -> NestedArray a"
+and "NestedArray a -> NestedArray a -> NestedArray a" and so on.
+These do not have to be taken care of during generation of Q Exp as they will be checked after the generation with Haskell type system.
+Therefore, it has to be either somewhat put string as a function inside of Haskell QuasiQuote
+or find a way to store different types of APL operations. Perhaps an extra level of abstraction via another type might work.
+
+Anti-climatically, the solution was quite simple: making the "Ops table" return the ExpQ solved it. That way it does not have to check
+type while building the expression. The Haskell Compiler will take care of types after building expression from the quasi quotes. 
+-}
