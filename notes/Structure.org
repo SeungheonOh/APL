@@ -1,8 +1,5 @@
-#+TITLE: APL
-Use APL operations in Haskell
-
-* Note
-** Recursive structures
+#+TITLE: Array Structure
+* Recursive structures
 Simple rose tree structure: 
 #+begin_src  haskell
   data Tree a
