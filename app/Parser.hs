@@ -35,6 +35,7 @@ data APLExpr = Alpha
              -- | Array (NestedArray APLExpr)
              | MonadicOp String (Maybe APLExprAxis) APLExpr
              | DyadicOp String (Maybe APLExprAxis) APLExpr APLExpr
+             | ProductOp String (Maybe String) APLExpr APLExpr
              deriving (Show, Data)
 
 pNat :: Parser Int
@@ -66,16 +67,26 @@ pAxis = do char '['
            return $ Axis ns
 
 pMonadicOp :: Parser APLExpr
-pMonadicOp = MonadicOp
-          <$> (char '.' *> some alphaNumChar)
-          <*> optional pAxis <* char ' '
-          <*> (try pAPLExpr <|> pAPLTerm)
+pMonadicOp = do name <- char '.' *> some alphaNumChar 
+                axis <- optional pAxis
+                space
+                MonadicOp name axis <$> (try pAPLExpr <|> pAPLTerm)
 
 pDyadicOp :: Parser APLExpr
-pDyadicOp = do a1 <- pAPLTerm <* char ' '
-               name <- char '.' *> some alphaNumChar
-               axis <- optional pAxis <* char ' '
+pDyadicOp = do a1 <- pAPLTerm
+               space 
+               name <- char '.' *> some alphaNumChar 
+               axis <- optional pAxis
+               space
                DyadicOp name axis a1 <$> (try pAPLExpr <|> pAPLTerm)
+
+pProductOp :: Parser APLExpr
+pProductOp = do a1 <- pAPLTerm
+                space
+                name1 <- char '(' *> some alphaNumChar
+                name2 <- char '.' *> optional (some alphaNumChar) <* char ')'
+                space
+                ProductOp name1 name2 a1 <$> (try pAPLExpr <|> pAPLTerm)
 
 pParen :: Parser a -> Parser a
 pParen p = char '(' *> p <* char ')'
@@ -88,8 +99,9 @@ pAPLTerm = try $ char '@' *> return Alpha
            <|> pParen pAPLExpr
 
 pAPLExpr :: Parser APLExpr
-pAPLExpr = try pDyadicOp
-           <|> pMonadicOp
+pAPLExpr = try pMonadicOp
+           <|> try pProductOp
+           <|> try pDyadicOp
 
 pAPL :: Parser APLExpr
 pAPL = try pAPLExpr <|> pAPLTerm 
@@ -103,21 +115,28 @@ test6 = parseTest pAPL ".ρ[1 2 3] .ρ[1 2 3] 1,2,3"
 testa = parseTest pAPL ".o[1 2 3] (a .o a)"
 test7 = parseTest pAPL ".ρ[1 2 3] (.ρ[1 2 3] a)"
 test8 = parseTest pAPL ".ρ[1 2 3] (.ρ[1 2 3] a a)"
+testb :: IO ()
 testb = parseTest pAPL ".ρ[1 2 3] @"
 testc = parseTest pAPL ".ρ[1 2 3] (@ .reshape[1 2 3] 1,2,3,4,5)"
 testd = parseTest pAPL "hello,world .ρ .z 1,2,3,45"
 teste = parseTest pAPL ".ρ .z 1,2,3,4"
-testf = parseTest pAPL "1,1 .rotate 3,3 .reshape 1,2,3,4,5,6,7,8"
+testf = parseTest pAPL "3,4⍴3,4,5,6,7,2,3,4,5,"
+testg = parseTest pMonadicOp ".enclose 3,3 .reshape 0,0,0,0,1,0,0,0,0"
+testga = parseTest pAPL ".enclose 3,3 .reshape 0,0,0,0,1,0,0,0,0"
+testproduct = parseTest pAPL "1,2,3,4 (a.b) 3,4"
+testh = parseTest pAPL "1,0,-1 (rotate.) .enclose #"
 
 hasAlpha :: APLExpr -> Bool
 hasAlpha Alpha = True
 hasAlpha (DyadicOp _ _ a1 a2) = hasAlpha a1 || hasAlpha a2
+hasAlpha (ProductOp _ _ a1 a2) = hasAlpha a1 || hasAlpha a2
 hasAlpha (MonadicOp _ _ a) = hasAlpha a
 hasAlpha _ = False
 
 hasOmega :: APLExpr -> Bool
 hasOmega Omega = True
 hasOmega (DyadicOp _ _ a1 a2) = hasOmega a1 || hasOmega a2
+hasOmega (ProductOp _ _ a1 a2) = hasOmega a1 || hasOmega a2
 hasOmega (MonadicOp _ _ a) = hasOmega a
 hasOmega _ = False
 
@@ -128,34 +147,49 @@ isMonadic :: APLExpr -> Bool
 isMonadic a = not (hasAlpha a) && hasOmega a
 
 monadicOps :: String -> TH.ExpQ 
-monadicOps "split" = [| split |]
+monadicOps "split"   = [| split |]
 monadicOps "enclose" = [| enclose |]
-monadicOps _       = [| id |]
+monadicOps _         = [| id |]
 
 dyadicOps :: String -> TH.ExpQ 
-dyadicOps "drop"    = [| purge |]
-dyadicOps "reshape" = [| reshape |] 
-dyadicOps "rotate"  = [| rotateFirst |]
-dyadicOps "rotateFirst"  = [| rotate |]
-dyadicOps "plus"  = [| op (+) |]
-dyadicOps "eq"  = [| op (==) |]
-dyadicOps _         = [| \x y -> y |]
+dyadicOps "drop"        = [| purge |]
+dyadicOps "reshape"     = [| reshape |] 
+dyadicOps "rotate"      = [| rotateFirst |]
+dyadicOps "rotateFirst" = [| rotate |]
+dyadicOps "plus"        = [| op (+) |]
+dyadicOps "minus"       = [| op (-) |]
+dyadicOps "mult"        = [| op (*) |]
+dyadicOps "eq"          = [| op (==) |]
+dyadicOps _             = [| \x y -> y |]
 
 antiExprExp :: APLExpr -> Maybe (TH.Q TH.Exp)
-antiExprExp Alpha = Just $ [| a |]
-antiExprExp Omega = Just $ [| w |]
+antiExprExp Alpha = Just [| alpha |]
+antiExprExp Omega = Just [| omega |]
 antiExprExp (MonadicOp n axis a) = do
   na <- antiExprExp a
-  return $ [|$f $na|]
+  return [|$f $na|]
     where
       f = monadicOps n 
 antiExprExp (DyadicOp n axis a1 a2) = do
   na1 <- antiExprExp a1
   na2 <- antiExprExp a2
-  return $ [|$f $na1 $na2|]
+  return [|$f $na1 $na2|]
     where
       f = dyadicOps n
-antiExprExp (Literal l) = Just $ [| fromList l |]
+antiExprExp (ProductOp n1 (Just n2) a1 a2) = do
+  na1 <- antiExprExp a1
+  na2 <- antiExprExp a2
+  return [|innerProduct $op1 $op2 $na1 $na2|]
+    where
+      op1 = dyadicOps n1
+      op2 = dyadicOps n2
+antiExprExp (ProductOp n1 Nothing a1 a2) = do
+  na1 <- antiExprExp a1
+  na2 <- antiExprExp a2
+  return [|outerProduct $op1 $na1 $na2|]
+    where
+      op1 = dyadicOps n1
+antiExprExp (Literal l) = Just [| fromList l |]
 
 quoteExprExp :: String -> TH.Q TH.Exp
 quoteExprExp str = e >>= mkExpQ
@@ -165,10 +199,10 @@ quoteExprExp str = e >>= mkExpQ
                 Right a -> return a
     exq a = dataToExpQ (const Nothing `extQ` antiExprExp) a
     mkExpQ exp
-      -- isDyadic a = lamE [TH.varP (TH.mkName "a"), TH.varP (TH.mkName "w")] $ exq a
-      -- isMonadic exp = lamE [TH.varP (TH.mkName "w")] $ exq exp
-      | isDyadic exp = [|\a w -> $(exq exp)|]
-      | isMonadic exp = [|\w -> $(exq exp)|]
+      | isDyadic exp = lamE [TH.varP (TH.mkName "alpha"), TH.varP (TH.mkName "omega")] $ exq exp
+      | isMonadic exp = lamE [TH.varP (TH.mkName "omega")] $ exq exp
+      -- | isDyadic exp = [|\a w -> $(exq exp)|]
+      -- | isMonadic exp = [|\w -> $(exq exp)|]
       | otherwise = exq exp
 
 apl :: QuasiQuoter
@@ -178,6 +212,8 @@ apl = QuasiQuoter
     , quoteType = undefined
     , quoteDec  = undefined
     }
+
+--[apl|1,0,-1 (rotateFirst.) 1,0,-1 (rotate.) .enclose #|]
 
 {-
 NOTE/TODO
