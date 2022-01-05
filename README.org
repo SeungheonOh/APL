@@ -1,0 +1,2 @@
+#+TITLE: APL
+Use APL operations in Haskell

@@ -1,0 +1,48 @@
+#+TITLE: Array Structure
+* Recursive structures
+Simple rose tree structure: 
+#+begin_src  haskell
+  data Tree a
+     = Leaf a
+     | Branch [Tree a]
+#+end_src
+
+"Fix" can be used to construct a recursive strucure as well.
+#+begin_src haskell
+  data Fix f = Fix (f (Fix f))
+  data TreeF a r = LeafF a | BranchF [r]
+  test :: Fix (TreeF Int)
+  test = undefined
+#+end_src
+
+Because simpling putting its own type hinders one from interfacing with the nested data, it has to be done by recursive strucutres.
+
+For example in non recursive structures,
+#+begin_src haskell
+  data Array a = Array
+    { value :: V.Vector a
+    , shape :: [Int]
+    } deriving (Eq, Show)
+
+  -- Array (Array (Array (Array ...)))
+#+end_src
+the nested level can go on and there is no way to handle them all.
+#+begin_src haskell
+f (Array vec ns) = ... 
+#+end_src
+Here we have no control of nested levels as we are not able to deconstruct the vector. :(
+
+
+However in recursive structures, 
+#+begin_src haskell
+data NestedArray a
+  = Node a
+  | Nest (Array (NestedArray a))
+  deriving (Show)
+#+end_src
+the structure does the recursion.
+#+begin_src haskell
+  f (Node a) = ...
+  f (Nest a) = ...
+#+end_src
+Here we have full control of nested levels. :)
