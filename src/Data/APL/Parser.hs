@@ -114,30 +114,3 @@ pAPLArrayRecursionSafe = try $ pParen pAPLArray
 
 pAPLArray :: Parser APLArray
 pAPLArray = pArray pAPLElem
-
-
-
---[apl|1,0,-1 (rotateFirst.) 1,0,-1 (rotate.) .enclose #|]
-
-{-
-NOTE/TODO
-
-Need to find a way to store APL operations of different types. For example "NestedArray Int -> NestedArray a -> NestedArray a"
-and "NestedArray a -> NestedArray a -> NestedArray a" and so on.
-These do not have to be taken care of during generation of Q Exp as they will be checked after the generation with Haskell type system.
-Therefore, it has to be either somewhat put string as a function inside of Haskell QuasiQuote
-or find a way to store different types of APL operations. Perhaps an extra level of abstraction via another type might work.
-
-Anti-climatically, the solution was quite simple: making the "Ops table" return the ExpQ solved it. That way it does not have to check
-type while building the expression. The Haskell Compiler will take care of types after building expression from the quasi quotes. 
--}
-
-{-
-0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 
--}
- --board = [apl|5 7 .reshape 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0|]
-
-
--- life work!
--- life = [apl|1,# (or.and) 3,4 .eq .plus/ .plus/ 1,0,-1 (rotateFirst.) 1,0,-1 (rotate.) .enclose #|]
-
