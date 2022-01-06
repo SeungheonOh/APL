@@ -163,7 +163,8 @@ pretty a
 reduce :: (NestedArray a -> NestedArray a -> NestedArray a) -> NestedArray a -> NestedArray a
 reduce f a = reduceAxis (length $ shape a) f a
 
-reduceAxis :: Int -> (NestedArray a -> NestedArray a -> NestedArray a) -> NestedArray a -> NestedArray a
+reduceAxis :: Int -> (NestedArray a -> NestedArray a -> NestedArray a)
+           -> NestedArray a -> NestedArray a
 reduceAxis ax f a = reshape (fromList $ beside (ax-1) (shape a)) $ nest e
   where
     e = V.toList $ foldr1 f . value <$> value (splitAxis ax a)
