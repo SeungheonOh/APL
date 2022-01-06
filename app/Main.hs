@@ -23,7 +23,6 @@ rboard = [
 board :: NestedArray Int
 board = reshape (fromList [length rboard, length $ head rboard]) $ fromList $ concat rboard
 
-<<<<<<< HEAD
 main :: IO ()
 main = do
   p $ life board
