@@ -46,6 +46,7 @@ executable APL
     -- other-extensions:
     build-depends:
         base ^>=4.14.3.0,
+        gloss,
         APL
 
     hs-source-dirs:   app

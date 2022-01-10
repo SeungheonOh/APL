@@ -50,9 +50,6 @@ data APLException = RankError
 
 instance Exception APLException
 
-test =  liftA2 (+) (Node 5) (fromList [4, 3])
-test2 = liftA2 (+) (iota 4) (iota 4)
-
 fill :: NestedArray a -> NestedArray a
 fill (Nest a) = Nest $ f a
   where
@@ -91,14 +88,23 @@ reshapeWith rp r a
       f rp r (Node a) = f rp r (Nest $ Array (V.fromList [Node a]) [1])
       f rp r (Nest a) = fillWith r $ Nest $ Array (_value a) rp
 
-
-iota :: Int -> NestedArray Int
-iota a = nest $ Node <$> [1..a]
-
--- TODO get this fixed
-iotaArr :: NestedArray Int -> NestedArray a
-iotaArr (Nest a) = undefined
-iotaArr (Node a) = undefined
+iota :: NestedArray Int -> NestedArray Int
+iota (Nest a)
+  | length d == 1 = iota (Node $ head d)
+  | otherwise = Nest $ Array (V.fromList r) d
+  where
+    d = V.toList $ acc <$> _value a
+    li = group (length d) $ Node <$> gen d []
+    r = nest <$> li
+    acc (Nest a) = throw RankError
+    acc (Node a) = a
+    gen (x:xs) c = [1..x] >>= (\e -> gen xs (c ++ [e]))
+    gen [] c = c
+    group _ [] = []
+    group n l
+      | n > 0 = take n l : group n (drop n l)
+      | otherwise = error "Negative or zero n"
+iota (Node a) = nest $ Node <$> [1..a]
 
 enclose :: NestedArray a -> NestedArray a
 enclose a = Nest $ Array (V.fromList [a]) [1]

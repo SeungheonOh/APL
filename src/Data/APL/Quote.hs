@@ -44,21 +44,36 @@ isMonadic :: APLArray -> Bool
 isMonadic a = not (hasAlpha a) && hasOmega a
 
 mOps :: String -> TH.ExpQ
-mOps "split"   = [| split |]
-mOps "enclose" = [| enclose |]
-mOps "fromEnum"= [| fmap fromEnum |]
-mOps _         = [| id |]
+mOps "split"    = [| split |]
+mOps "↓"        = [| split |]
+mOps "enclose"  = [| enclose |]
+mOps "⊂"        = [| enclose |]
+mOps "iota"     = [| iota |]
+mOps "⍳"        = [| iota |]
+mOps "i"        = [| iota |]
+mOps "fromEnum" = [| fmap fromEnum |]
+mOps _          = [| id |]
 
 dOps :: String -> TH.ExpQ
 dOps "drop"        = [| purge |]
+dOps "↓"           = [| purge |]
 dOps "reshape"     = [| reshape |]
+dOps "⍴"           = [| reshape |]
 dOps "rotate"      = [| rotateFirst |]
+dOps "⌽"           = [| rotateFirst |]
 dOps "rotateFirst" = [| rotate |]
+dOps "⊖"           = [| rotate |]
 dOps "plus"        = [| op (+) |]
+dOps "⍅"           = [| op (+) |]
+dOps "+"           = [| op (+) |]
 dOps "minus"       = [| op (-) |]
+dOps "-"           = [| op (-) |]
 dOps "mult"        = [| op (*) |]
+dOps "×"           = [| op (*) |]
+dOps "*"           = [| op (*) |]
 dOps "div"         = [| op div |]
 dOps "eq"          = [| op (\x y -> fromEnum $ x == y) |]
+dOps "="           = [| op (\x y -> fromEnum $ x == y) |]
 dOps _             = [| \x y -> y |]
 
 monadicOp :: APLOperator -> TH.ExpQ
