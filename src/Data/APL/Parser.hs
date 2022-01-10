@@ -61,6 +61,7 @@ pAxis = do char '['
 pAPLOperator :: Parser APLOperator
 pAPLOperator = (try (char '$') >> AntiOp <$> some alphaNumChar)
                <|> Op <$> some alphaNumChar
+               <|> Op . (:[]) <$> aplChar
 
 pAPLArg :: Parser APLElem
 pAPLArg = try $ char '@' *> return Alpha
