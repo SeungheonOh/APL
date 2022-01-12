@@ -7,5 +7,3 @@ module Data.APL (
 import Data.APL.Array
 import Data.APL.Operator
 import Data.APL.Quote
-
-

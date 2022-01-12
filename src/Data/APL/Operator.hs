@@ -171,13 +171,13 @@ reduce f a = reduceAxis (length $ shape a) f a
 
 reduceAxis :: Int -> (NestedArray a -> NestedArray a -> NestedArray a)
            -> NestedArray a -> NestedArray a
-reduceAxis ax f a = reshape (fromList $ beside (ax-1) (shape a)) $ nest e
+reduceAxis ax f a = reshape (fromList $ exceptN (ax-1) (shape a)) $ nest e
   where
     e = V.toList $ foldr1 f . value <$> value (splitAxis ax a)
 
 -- Returns given list without given index
-beside :: Int -> [a] -> [a]
-beside i a = take i a ++ drop (i+1) a
+exceptN :: Int -> [a] -> [a]
+exceptN i a = take i a ++ drop (i+1) a
 
 -- Generate indexs from given combinations
 genIndex :: [[Int]] -> [Int] -> [[Int]]
@@ -191,7 +191,7 @@ splitAxis ax (Nest (Array vec ns))
   | otherwise = reshape (fromList newshape) $ nest $ mk <$> genIndex req []
   where
     axis = ax - 1 -- 1 based indexing
-    newshape = beside axis ns
+    newshape = exceptN axis ns
     req = enumFromTo 1 <$> newshape
     mkInd i x = take axis i ++ [x] ++ drop axis i
     mk i = nest $ (vec V.!) . convertDemention ns . mkInd i <$> [1..ns!!axis]
@@ -277,6 +277,12 @@ op f a b
   | shape b == [1]     = Nest $ Array (flip (op f) (first b) <$> value a) $ shape a
   | shape a == shape b = Nest $ Array (V.zipWith (op f) (value a) (value b)) (shape a)
   | otherwise          = throw LengthError
+
+beside :: (NestedArray a -> NestedArray b)
+       -> (NestedArray b -> NestedArray c)
+       -> NestedArray a
+       -> NestedArray c
+beside = undefined
 
 p :: Show a => NestedArray a -> IO ()
 p a = putStrLn $ pretty a
