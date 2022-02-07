@@ -1,2 +1,27 @@
 #+TITLE: APL
-Use APL operations in Haskell
+Use APL operations in Haskell: Strongly Typed APL operations on top of Haskell QuasiQuotes. 
+* Design
+** Parser
+*** Syntax 
+| Syntax        | Mean                     |
+|---------------+--------------------------|
+| 1,2,3,4,5     | 1d Int Array             |
+| .op a         | MonadicOp on a           |
+| a .op b       | DyadicOp on a & b        |
+| .op/ a        | Reduce a with op         |
+| a (op.) b     | Outer product of a and b |
+| a (op1.op2) b | Inner product of a and b |
+|---------------+--------------------------|
+Use of comma allows parser to differentiate =+ 1 2 3 - 3 4 5= and =+ 1 2 3 (- 3 4 5)=
+
+* Example
+Conway's Game of Life implemented in Haskell APL EDSL:
+#+begin_src haskell
+  [apl|1,# (or.and) 3,4 .eq .plus/ .plus/ 1,0,-1 (rotateFirst.) 1,0,-1 (rotate.) .enclose #|]
+#+end_src
+It is almost one to one equivalent to APL counter part:
+={1 ⍵ ∨.∧ 3 4=+/+/¯1 0 1∘.⊖¯1 0 1∘.⌽⊂⍵}=
+
+* Possibilities 
+- [ ] Offload array computation to [[https://www.acceleratehs.org/][Accelerate]]
+  - Is this even possible? 
